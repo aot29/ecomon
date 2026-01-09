@@ -3,7 +3,7 @@ name: Build Docker images
 on:
   push:
     branches:
-      - next  # Trigger on push to any branch
+      - "**"  # Trigger on push to any branch
 
 jobs:
   docker:
