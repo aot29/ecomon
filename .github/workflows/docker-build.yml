@@ -5,6 +5,10 @@ on:
     branches:
       - "**"  # Trigger on push to any branch
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -49,3 +53,75 @@ jobs:
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/ecomon-${{ matrix.name }}:latest
             ghcr.io/${{ env.OWNER_LC }}/ecomon-${{ matrix.name }}:${{ github.sha }}
+
+  integration-tests:
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: docker
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: ecomon
+          POSTGRES_PASSWORD: ecomon
+          POSTGRES_DB: ecomon
+        options: >-
+          --health-cmd="pg_isready -U ecomon"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set env
+        run: |
+          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+          echo "SHA=${{ github.sha }}" >> $GITHUB_ENV
+          echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
+          echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
+          echo "POSTGRES_USER=ecomon" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=ecomon" >> $GITHUB_ENV
+          echo "POSTGRES_DATABASE=ecomon" >> $GITHUB_ENV
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images by commit SHA
+        run: |
+          docker pull ghcr.io/${{ env.OWNER_LC }}/ecomon-api:${{ env.SHA }}
+          docker pull ghcr.io/${{ env.OWNER_LC }}/ecomon-worker:${{ env.SHA }}
+          docker pull ghcr.io/${{ env.OWNER_LC }}/ecomon-frontend:${{ env.SHA }}
+
+      - name: Start API
+        run: |
+          docker run -d --name api --network host \
+            -e POSTGRES_HOST="${POSTGRES_HOST}" \
+            -e POSTGRES_PORT="${POSTGRES_PORT}" \
+            -e POSTGRES_USER="${POSTGRES_USER}" \
+            -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+            -e POSTGRES_DATABASE="${POSTGRES_DATABASE}" \
+            ghcr.io/${{ env.OWNER_LC }}/ecomon-api:${{ env.SHA }}
+
+      - name: Wait for API
+        run: |
+          for i in {1..60}; do
+            curl -sSf http://localhost:80/docs && exit 0 || true
+            sleep 2
+          done
+          echo "API not ready" && exit 1
+
+      - name: Run integration checks
+        run: |
+          curl -sSf http://localhost:80/jobs/last_update
+          curl -sSf http://localhost:80/prefix
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker logs api || true
+          docker rm -f api || true
