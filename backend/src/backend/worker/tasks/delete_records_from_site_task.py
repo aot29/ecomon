@@ -38,6 +38,9 @@ def delete_records_from_site_task(self, site_id: int, directories: list[str]):
     try:
         deleted_records = 0
         counter = 0
+        failed_directories = []
+        skipped_directories = []
+        
         for directory in directories:
             if self.check_revoked():
                 return {
@@ -46,24 +49,31 @@ def delete_records_from_site_task(self, site_id: int, directories: list[str]):
                     "message": "Task was revoked.",
                 }
 
-            # Direct filtered delete
-            deleted_count = (
-                session.query(Records)
-                .filter(
-                    Records.site_id == site_id,
-                    Records.filepath.like(f"{directory}%"),
-                )
-                .delete(synchronize_session=False)
-            )
-
-            session.commit()
-            deleted_records += deleted_count
-            counter += 1
-            logger.info(f"Deleted {deleted_count} records from {directory}")
-            # Progress updates with separate short-lived session
-
             try:
+                # Direct filtered delete
+                deleted_count = (
+                    session.query(Records)
+                    .filter(
+                        Records.site_id == site_id,
+                        Records.filepath.like(f"{directory}%"),
+                    )
+                    .delete(synchronize_session=False)
+                )
 
+                session.commit()
+                deleted_records += deleted_count
+                counter += 1
+                logger.info(f"Deleted {deleted_count} records from {directory}")
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Failed to delete records from directory {directory}: {str(e)}")
+                failed_directories.append({"directory": directory, "error": str(e)})
+                skipped_directories.append(directory)
+                counter += 1
+                # Continue with next directory
+            
+            # Progress updates with separate short-lived session
+            try:
                 JobService.update_job_progress_by_counter(
                     session, job_id, counter, len(directories)
                 )
@@ -72,17 +82,34 @@ def delete_records_from_site_task(self, site_id: int, directories: list[str]):
             except Exception as e:
                 session.rollback()
                 logger.error(f"Progress update failed: {str(e)}")
-            JobService.updateResult(
-                session,
-                job_id,
-                {
-                    "deleted_records": deleted_records,
-                },
+            
+            try:
+                JobService.updateResult(
+                    session,
+                    job_id,
+                    {
+                        "deleted_records": deleted_records,
+                        "failed_directories": failed_directories,
+                        "skipped_count": len(skipped_directories),
+                    },
+                )
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Failed to update job result: {str(e)}")
+        # Log summary of skipped directories if any
+        if skipped_directories:
+            logger.warning(
+                f"Skipped {len(skipped_directories)} directories due to errors: {', '.join(skipped_directories)}"
             )
+        
         if deleted_records == 0:
+            message = "No records found to delete"
+            if failed_directories:
+                message += f". {len(failed_directories)} directories failed."
             return {
                 "status": "success",
-                "message": "No records found to delete",
+                "message": message,
+                "failed_directories": failed_directories,
             }
         wait_for_lock_and_create_report(job_id, site_id, session, logger)
     except Exception as e:
