@@ -14,13 +14,15 @@ Required software
 * Git
 * Docker and Docker-Compose
 
-Clone the repository and checkout the desired branch
+Clone the repository into the desired directory (ecomon_SITENAME_MODELNAME)
 ```
-sudo GIT_SSH_COMMAND='ssh -i path-to-your-id_rsa' git clone git@github.com:MfN-Berlin/ecomon.git ecomon_validate
-sudo chown -R "$USER":akwamo ecomon_validate
-cd ecomon_validate
-git checkout ecomon_validate
+sudo GIT_SSH_COMMAND='ssh -i path-to-your-id_rsa' git clone git@github.com:MfN-Berlin/ecomon.git ecomon_SITENAME_MODELNAME
+sudo chown -R "$USER":akwamo ecomon_SITENAME_MODELNAME
+cd ecomon_SITENAME_MODELNAME
 ```
+Check that you are on the correct branch: `git status` should give "new-main"
+
+If you need to install multiple instances on a single (virtual) machine, you will need additional steps, see under: "Multiple instances" below.
 
 Make a copy of the environment variables file for development
 ```
@@ -28,10 +30,8 @@ cp env-production .env
 ```
 
 Open the `.env` file in an editor and set at least:
-* DB_NAME=ecomon
 * DB_PASSWORD=secure-password
 * DB_ROOT_PASSWORD=secure-password
-* DB_PORT=a-port
 * BASE_DATA_DIRECTORY=path-to-audio-dir  # needs 50TB+, e.g. on 3fs storage
 * PGBACKUP_PATH=path-to-backup-dir  # needs 20TB+, e.g. on 3fs storage
 * DOMAIN=your-domain-or-ip
@@ -41,13 +41,16 @@ Open the `.env` file in an editor and set at least:
 * HASURA_ADMIN_SECRET=secure-password
 * HASURA_URL=pdefault-docker-compose-gateway (typically 172.17.0.1, used by Dashboard)
 * USE_GPU=1  # 1, 2, or all
+* TMP_DIR=/mnt/akwamotmp/your-subpath # this should be unique, and should exist
+* PGBACKUP_PATH=/mnt/akwamodb/ecomon_BRITZ01_glob11k # this should be unique, and should exist, and by convention the name should end with "_backup"
 
 Make sure that these are the same in .env and/or docker-compose.production.yaml:
-* The port in .env HASURA_URL should be set in the grpahql service in docker.compose.production.yaml
+* The port in .env HASURA_URL should be unique and the port exposed by the graphql-engine service in docker.compose.production.yaml
 * Port to dashboard service
 * Port to DB service should be unique
 
-Check that PGDATA_PATH exists.
+Check that PGDATA_PATH exista and contains wav data.
+Check that TMP_DIR, PGBACKUP_PATH exist, is not used by another instance, or else create it.
 
 Give the redis service in docker-compose.production.yaml a unique name
 
@@ -79,3 +82,6 @@ Restore the sql schema from backup
 
 ## Multiple instances
 If you need multiple instances of ecomon, then the recommended solution is to put each instance in its own virtual machine.
+
+However, if you need to install multiple instances on the same (virtual) machine, you will need to make a local fork of the repository, and rebuild the frontend container.
+
