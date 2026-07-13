@@ -1,0 +1,34 @@
+table:
+  name: thresholds
+  schema: public
+object_relationships:
+  - name: label
+    using:
+      foreign_key_constraint_on: label_id
+  - name: model
+    using:
+      foreign_key_constraint_on: model_id
+insert_permissions:
+  - role: user
+    permission:
+      check: {}
+      columns:
+        - is_final
+        - id
+        - label_id
+        - model_id
+        - threshold
+        - set_at
+    comment: ""
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - is_final
+        - id
+        - label_id
+        - model_id
+        - threshold
+        - set_at
+      filter: {}
+    comment: ""
